@@ -1,35 +1,35 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import admin from "firebase-admin";
-import { MercadoPagoConfig, Preference } from 'mercadopago';
+import { getFirestore } from "firebase-admin/firestore";
+import Stripe from 'stripe';
 
 dotenv.config();
 
-// Initialize Mercado Pago
-if (process.env.MERCADO_PAGO_ACCESS_TOKEN) {
-  console.log("Mercado Pago Token detected (ends with:", process.env.MERCADO_PAGO_ACCESS_TOKEN.slice(-4), ")");
-} else {
-  console.warn("Mercado Pago Token is MISSING. Checkout will not work.");
-}
+// Initialize Stripe
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
 
-const mpClient = new MercadoPagoConfig({ 
-  accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || '' 
-});
+if (process.env.STRIPE_SECRET_KEY) {
+  console.log("Stripe Secret Key detected.");
+} else {
+  console.warn("Stripe Secret Key is MISSING. Checkout will not work.");
+}
 
 // Initialize Firebase Admin
-if (!admin.apps.length) {
-  try {
-    admin.initializeApp();
-  } catch (err) {
-    console.error("Firebase Admin Init Error:", err);
-  }
-}
+const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
-const db = admin.firestore();
+if (!admin.apps.length) {
+  admin.initializeApp({
+    projectId: firebaseConfig.projectId
+  });
+}
+const db = getFirestore(firebaseConfig.firestoreDatabaseId);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +37,56 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Stripe Webhook MUST stay before express.json() to receive raw body for signature verification
+  app.post("/api/payments/webhook", express.raw({ type: 'application/json' }), async (req: any, res: any) => {
+    const sig = req.headers['stripe-signature'] as string;
+    let event;
+
+    console.log("Stripe Webhook Received. Signature:", sig ? "Present" : "Missing");
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET || ''
+      );
+    } catch (err: any) {
+      console.error(`Webhook Error: ${err.message}`);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    console.log("Webhook Event Validated:", event.type);
+
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const userId = session.client_reference_id as string;
+      const plan = session.metadata?.plan as string;
+      
+      console.log(`Processing completion for User: ${userId}, Plan: ${plan}`);
+
+      const now = new Date();
+      const expiresAt = new Date();
+      if (plan === 'monthly') expiresAt.setMonth(now.getMonth() + 1);
+      else expiresAt.setFullYear(now.getFullYear() + 1);
+
+      try {
+        // Update user in Firestore
+        await db.collection('users').doc(userId).set({
+          plan,
+          subscriptionStatus: 'active',
+          expiresAt: expiresAt,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        console.log(`✅ Assinatura Stripe ATIVADA para: ${userId} (${plan})`);
+      } catch (dbError) {
+        console.error("Firestore Update Error in Webhook:", dbError);
+      }
+    }
+
+    res.json({ received: true });
+  });
 
   app.use(express.json());
 
@@ -135,14 +185,14 @@ async function startServer() {
     }
   });
 
-  // Mercado Pago Checkout
-  app.post("/api/payments/create-preference", async (req, res) => {
+  // Stripe Checkout
+  app.post("/api/payments/create-session", async (req, res) => {
     try {
       const { plan, userId, email } = req.body;
       
-      if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
-        console.error("MERCADO_PAGO_ACCESS_TOKEN is missing");
-        return res.status(500).json({ error: "Configuração de pagamento ausente (Token)." });
+      if (!process.env.STRIPE_SECRET_KEY) {
+        console.error("STRIPE_SECRET_KEY is missing");
+        return res.status(500).json({ error: "Configuração de pagamento ausente (Stripe Secret)." });
       }
 
       if (!process.env.APP_URL) {
@@ -150,97 +200,42 @@ async function startServer() {
         return res.status(500).json({ error: "Configuração do servidor ausente (URL)." });
       }
 
-      const amount = plan === 'monthly' ? 49.90 : 299.90;
+      const amount = plan === 'monthly' ? 4990 : 29990; // Em centavos
       const title = plan === 'monthly' ? 'AETHEM - Elite Monthly' : 'AETHEM - Overlord Yearly';
 
-      const preference = new Preference(mpClient);
-      const result = await preference.create({
-        body: {
-          items: [
-            {
-              id: plan,
-              title: title,
-              unit_price: amount,
-              quantity: 1,
-              currency_id: 'BRL'
-            }
-          ],
-          payer: {
-            email: email || 'usuario@forja.aethem.com' // Fallback se o email for nulo
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price_data: {
+              currency: 'brl',
+              product_data: {
+                name: title,
+                description: `Acesso Neural AETHEM - Plano ${plan === 'monthly' ? 'Mensal' : 'Anual'}`,
+              },
+              unit_amount: amount,
+            },
+            quantity: 1,
           },
-          external_reference: userId, 
-          back_urls: {
-            success: `${process.env.APP_URL}/dashboard?payment=success`,
-            failure: `${process.env.APP_URL}/dashboard?payment=failure`,
-            pending: `${process.env.APP_URL}/dashboard?payment=pending`
-          },
-          auto_return: 'approved',
-          notification_url: `${process.env.APP_URL}/api/payments/webhook`
+        ],
+        mode: 'payment',
+        customer_email: email,
+        client_reference_id: userId,
+        success_url: `${process.env.APP_URL}/dashboard?payment=success`,
+        cancel_url: `${process.env.APP_URL}/dashboard?payment=failure`,
+        metadata: {
+          plan,
+          userId
         }
       });
 
-      res.json({ id: result.id, init_point: result.init_point });
+      res.json({ id: session.id, url: session.url });
     } catch (error: any) {
-      // Tentar extrair o erro específico do Mercado Pago se disponível
-      const mpError = error.response || error;
-      
-      console.error("MP Preference Error Detailed:", JSON.stringify(mpError, null, 2));
-
-      let userFriendlyMessage = "Falha ao gerar link de pagamento.";
-      
-      if (error.message?.includes("authentication")) {
-        userFriendlyMessage = "Erro de autenticação no Mercado Pago. Verifique seu Access Token.";
-      } else if (error.message?.includes("parameter")) {
-        userFriendlyMessage = "Erro nos parâmetros do pagamento. Contate o suporte.";
-      }
-
+      console.error("Stripe Session Error:", error);
       res.status(500).json({ 
-        error: userFriendlyMessage,
-        details: error.message,
-        mp_details: error.response?.data || null
+        error: "Falha ao gerar link de pagamento Stripe.",
+        details: error.message
       });
-    }
-  });
-
-  // Mercado Pago Webhook
-  app.post("/api/payments/webhook", async (req, res) => {
-    try {
-      const { type, data } = req.query;
-      
-      if (type === 'payment') {
-        const paymentId = data as string;
-        
-        // Fetch payment details from MP
-        const response = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-          headers: { Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}` }
-        });
-        const paymentData = await response.json();
-
-        if (paymentData.status === 'approved') {
-          const userId = paymentData.external_reference;
-          const plan = paymentData.additional_info.items[0].id;
-          
-          const now = new Date();
-          const expiresAt = new Date();
-          if (plan === 'monthly') expiresAt.setMonth(now.getMonth() + 1);
-          else expiresAt.setFullYear(now.getFullYear() + 1);
-
-          // Update user in Firestore
-          await db.collection('users').doc(userId).set({
-            plan,
-            subscriptionStatus: 'active',
-            expiresAt: expiresAt,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-          }, { merge: true });
-
-          console.log(`Assinatura ativada para usuário: ${userId}`);
-        }
-      }
-
-      res.sendStatus(200);
-    } catch (error) {
-      console.error("Webhook Error:", error);
-      res.sendStatus(500);
     }
   });
 

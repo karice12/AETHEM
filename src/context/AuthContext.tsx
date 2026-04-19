@@ -26,9 +26,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const isSubscribed = profile?.subscriptionStatus === 'active' && 
-                      profile?.expiresAt && 
-                      (profile.expiresAt.toDate ? profile.expiresAt.toDate() : new Date(profile.expiresAt)) > new Date();
+  const isSubscribed = (() => {
+    if (!profile || profile.subscriptionStatus !== 'active' || !profile.expiresAt) return false;
+    
+    try {
+      const expiryDate = profile.expiresAt?.toDate 
+        ? profile.expiresAt.toDate() 
+        : new Date(profile.expiresAt);
+        
+      return expiryDate > new Date();
+    } catch (e) {
+      console.error("Subscription date parse error", e);
+      return false;
+    }
+  })();
 
   const isExpired = profile?.subscriptionStatus === 'active' && 
                     profile?.expiresAt && 

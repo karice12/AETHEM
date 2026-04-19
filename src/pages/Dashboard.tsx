@@ -117,7 +117,7 @@ const Dashboard = () => {
     if (!user) return;
     setIsPaying(true);
     try {
-      const response = await fetch('/api/payments/create-preference', {
+      const response = await fetch('/api/payments/create-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -133,12 +133,12 @@ const Dashboard = () => {
         throw new Error(data.error || data.details || "Erro desconhecido no servidor.");
       }
 
-      if (data.init_point) {
-        window.location.href = data.init_point;
+      if (data.url) {
+        window.location.href = data.url;
       }
     } catch (err: any) {
       console.error("Payment Error:", err);
-      alert(`Erro: ${err.message}\n\nFavor verificar as configurações de pagamento.`);
+      alert(`Erro: ${err.message}\n\nFavor verificar as configurações da Stripe.`);
     } finally {
       setIsPaying(false);
     }
