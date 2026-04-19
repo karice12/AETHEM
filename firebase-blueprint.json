@@ -12,6 +12,8 @@
         "plan": { "type": "string", "enum": ["free", "monthly", "yearly"] },
         "subscriptionStatus": { "type": "string", "enum": ["active", "expired", "inactive"] },
         "expiresAt": { "type": "string", "format": "date-time" },
+        "termsAccepted": { "type": "boolean" },
+        "termsAcceptedAt": { "type": "string", "format": "date-time" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email", "plan", "createdAt"]

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { auth, ensureUserProfile, UserProfile } from '../lib/firebase';
+import { auth, ensureUserProfile, UserProfile, db } from '../lib/firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 interface AuthContextType {
   user: FirebaseUser | null;
@@ -8,6 +9,7 @@ interface AuthContextType {
   loading: boolean;
   isSubscribed: boolean;
   isExpired: boolean;
+  needsTermsAcceptance: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({ 
@@ -15,7 +17,8 @@ const AuthContext = createContext<AuthContextType>({
   profile: null, 
   loading: true,
   isSubscribed: false,
-  isExpired: false
+  isExpired: false,
+  needsTermsAcceptance: false
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -31,22 +34,57 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                     profile?.expiresAt && 
                     (profile.expiresAt.toDate ? profile.expiresAt.toDate() : new Date(profile.expiresAt)) <= new Date();
 
+  // Se estamos carregando e temos um usuário mas não temos perfil, consideramos que PRECISA (para evitar flicker)
+  // Ou melhor, apenas calculamos se profile for válido.
+  const needsTermsAcceptance = user !== null && profile !== null && profile.termsAccepted !== true;
+
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
-      if (user) {
-        const p = await ensureUserProfile(user);
-        setProfile(p);
-      } else {
+    const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      if (!firebaseUser) {
         setProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
-    return unsubscribe;
+
+    return unsubscribeAuth;
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+
+    setLoading(true); // Garante que estamos carregando ao trocar de usuário
+
+    let unsubscribeProfile: () => void;
+
+    const setupProfile = async () => {
+      try {
+        await ensureUserProfile(user); 
+        
+        unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
+          if (snapshot.exists()) {
+            setProfile(snapshot.data() as UserProfile);
+          }
+          setLoading(false);
+        }, (error) => {
+          console.error("Profile sync error:", error);
+          setLoading(false);
+        });
+      } catch (err) {
+        console.error("Setup profile error:", err);
+        setLoading(false);
+      }
+    };
+
+    setupProfile();
+
+    return () => {
+      if (unsubscribeProfile) unsubscribeProfile();
+    };
+  }, [user]);
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, isSubscribed, isExpired }}>
+    <AuthContext.Provider value={{ user, profile, loading, isSubscribed, isExpired, needsTermsAcceptance }}>
       {children}
     </AuthContext.Provider>
   );

@@ -17,6 +17,8 @@ export interface UserProfile {
   plan: 'free' | 'monthly' | 'yearly';
   subscriptionStatus?: 'active' | 'expired' | 'inactive';
   expiresAt?: any;
+  termsAccepted?: boolean;
+  termsAcceptedAt?: any;
   createdAt: any;
 }
 
@@ -74,6 +76,14 @@ export async function saveForgeResult(userId: string, data: Omit<PromptEntry, 'i
 }
 
 // Lógica de Pagamento (Simulação de Upgrade)
+export async function acceptTerms(userId: string) {
+  const userRef = doc(db, 'users', userId);
+  await setDoc(userRef, {
+    termsAccepted: true,
+    termsAcceptedAt: serverTimestamp()
+  }, { merge: true });
+}
+
 export async function simulateSubscriptionUpgrade(userId: string, plan: 'monthly' | 'yearly') {
   const userRef = doc(db, 'users', userId);
   const now = new Date();

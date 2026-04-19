@@ -1,19 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Terminal, LayoutDashboard, Library, Settings, LogOut, 
-  Menu, X, Sparkles, Copy, Check, Cpu, Zap, RefreshCw, ArrowRight
+  Menu, X, Sparkles, Copy, Check, Cpu, Zap, RefreshCw, ArrowRight,
+  Lock, ShieldCheck, FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getDiscoveryQuestions, forgeElitePrompt } from '../services/geminiService';
 import { useAuth } from '../context/AuthContext';
 import { 
   auth, subscribeToPrompts, saveForgeResult, PromptEntry,
-  simulateSubscriptionUpgrade 
+  simulateSubscriptionUpgrade, acceptTerms
 } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
 
 const Dashboard = () => {
-  const { user, profile, isSubscribed } = useAuth();
+  const { user, profile, isSubscribed, needsTermsAcceptance } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'library' | 'settings'>('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -32,6 +33,28 @@ const Dashboard = () => {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   
   const [output, setOutput] = useState('');
+  const [isPaying, setIsPaying] = useState(false);
+  const [isAccepting, setIsAccepting] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState<'success' | 'failure' | 'pending' | null>(null);
+
+  // Verificar status de pagamento na URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('payment') as any;
+    if (status) {
+      setPaymentStatus(status);
+      window.history.replaceState({}, '', window.location.pathname); // Limpa a URL
+      setTimeout(() => setPaymentStatus(null), 5000); // Remove o aviso após 5s
+    }
+  }, []);
+
+  // Sincronizar estado de carregamento do aceite
+  useEffect(() => {
+    if (!needsTermsAcceptance && isAccepting) {
+      const timer = setTimeout(() => setIsAccepting(false), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [needsTermsAcceptance, isAccepting]);
 
   // Sincronizar Histórico com Firestore
   useEffect(() => {
@@ -90,6 +113,37 @@ const Dashboard = () => {
     setOutput('');
   };
 
+  const handlePayment = async (plan: 'monthly' | 'yearly') => {
+    if (!user) return;
+    setIsPaying(true);
+    try {
+      const response = await fetch('/api/payments/create-preference', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plan,
+          userId: user.uid,
+          email: user.email
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || data.details || "Erro desconhecido no servidor.");
+      }
+
+      if (data.init_point) {
+        window.location.href = data.init_point;
+      }
+    } catch (err: any) {
+      console.error("Payment Error:", err);
+      alert(`Erro: ${err.message}\n\nFavor verificar as configurações de pagamento.`);
+    } finally {
+      setIsPaying(false);
+    }
+  };
+
   const copyToClipboard = () => {
     navigator.clipboard.writeText(output);
     setCopied(false); // Reset para forçar animação
@@ -102,8 +156,113 @@ const Dashboard = () => {
     window.location.href = '/';
   };
 
+  const handleAcceptTerms = async () => {
+    if (!user) return;
+    setIsAccepting(true);
+    try {
+      await acceptTerms(user.uid);
+      // O profile sync irá cuidar do resto, mas manteremos o loading por um momento para garantir
+    } catch (err) {
+      console.error("Erro ao aceitar termos:", err);
+      setIsAccepting(false);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-background overflow-hidden relative mesh-gradient">
+      {/* Payment Feedback Toast */}
+      <AnimatePresence>
+        {paymentStatus === 'success' && (
+          <motion.div 
+            initial={{ y: -100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -100, opacity: 0 }}
+            className="fixed top-8 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-accent-cyan/20 border border-accent-cyan/30 backdrop-blur-md rounded-full flex items-center gap-3 shadow-lg shadow-accent-cyan/10"
+          >
+            <div className="w-6 h-6 rounded-full bg-accent-cyan flex items-center justify-center">
+              <Check size={14} className="text-black" />
+            </div>
+            <span className="text-[10px] font-black text-white uppercase tracking-widest">Sincronização Completa: Licença Ativada</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* LGPD Modal Overlay */}
+      <AnimatePresence>
+        {(needsTermsAcceptance || isAccepting) && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="max-w-2xl w-full bg-surface border border-white/10 rounded-[32px] overflow-hidden shadow-2xl flex flex-col max-h-[85vh]"
+            >
+              <div className="p-8 border-b border-white/5 bg-accent-violet/5 flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-accent-violet/20 flex items-center justify-center">
+                  <ShieldCheck className="text-accent-violet" size={24} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black text-white uppercase italic tracking-tight">Protocolo de Privacidade Kernell</h2>
+                  <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest">Conformidade LGPD v2.1 - AETHEM System</p>
+                </div>
+              </div>
+
+              <div className="p-8 overflow-y-auto custom-scrollbar flex-1 space-y-6">
+                <section className="space-y-3">
+                  <div className="flex items-center gap-2 text-accent-cyan">
+                    <FileText size={14} />
+                    <h3 className="text-xs font-black uppercase tracking-widest">Termos de Uso de Rede</h3>
+                  </div>
+                  <p className="text-xs text-text-muted leading-relaxed font-mono">
+                    Ao operar no sistema AETHEM, você concorda que o processamento neural é realizado via Kernel de IA. Seus dados são utilizados exclusivamente para aprimorar sua experiência de forja. Você retém a propriedade intelectual de todos os prompts fabricados em nossos servidores.
+                  </p>
+                </section>
+
+                <section className="space-y-3">
+                  <div className="flex items-center gap-2 text-accent-cyan">
+                    <ShieldCheck size={14} />
+                    <h3 className="text-xs font-black uppercase tracking-widest">Privacidade & Dados (LGPD)</h3>
+                  </div>
+                  <p className="text-xs text-text-muted leading-relaxed font-mono">
+                    Coletamos dados técnicos mínimos (email, nome e histórico de forjas) para manutenção da sua licença. Seus dados são criptografados e não são compartilhados com entidades externas de dados. Você tem o direito de exportar ou deletar seus logs a qualquer momento via terminal de suporte.
+                  </p>
+                </section>
+
+                <div className="p-4 bg-white/[0.02] border border-dashed border-white/10 rounded-xl">
+                  <p className="text-[9px] text-text-muted uppercase leading-relaxed font-bold text-center">
+                    Ao clicar no botão abaixo, você confirma que leu e concorda com o processamento de seus dados neurais conforme as diretrizes da Lei Geral de Proteção de Dados.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-8 bg-black/20 border-t border-white/5 flex gap-4">
+                <button 
+                  onClick={handleLogout}
+                  className="flex-1 py-4 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest text-text-muted hover:bg-white/5 transition-all outline-none"
+                >
+                  Recusar Terminal
+                </button>
+                <button 
+                  onClick={handleAcceptTerms}
+                  disabled={isAccepting}
+                  className="flex-[2] py-4 bg-accent-violet hover:bg-accent-hover text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-accent-violet/20 outline-none disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isAccepting ? (
+                    <><RefreshCw size={14} className="animate-spin" /> Processando...</>
+                  ) : (
+                    'Aceitar Protocolos & Iniciar'
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Dynamic Orbs */}
       <div className="fixed top-[-20%] left-[-10%] w-[60%] h-[60%] bg-accent-violet/5 blur-[120px] rounded-full animate-mesh pointer-events-none" />
       <div className="fixed bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-accent-cyan/5 blur-[120px] rounded-full animate-mesh pointer-events-none delay-700" />
@@ -565,8 +724,9 @@ const Dashboard = () => {
                         <span className="text-[10px] text-text-muted uppercase font-black tracking-widest block mb-6">Licença Neural - Ciclo de Vida</span>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
                            <button 
-                             onClick={() => user && simulateSubscriptionUpgrade(user.uid, 'monthly')}
-                             className={`p-6 rounded-2xl border transition-all text-left group ${profile?.plan === 'monthly' ? 'bg-accent-violet/10 border-accent-violet' : 'bg-black/40 border-white/5 hover:border-white/10'}`}
+                             onClick={() => handlePayment('monthly')}
+                             disabled={isPaying}
+                             className={`p-6 rounded-2xl border transition-all text-left group ${profile?.plan === 'monthly' ? 'bg-accent-violet/10 border-accent-violet' : 'bg-black/40 border-white/5 hover:border-white/10'} ${isPaying ? 'opacity-50' : ''}`}
                            >
                               <div className="flex justify-between items-start mb-4">
                                  <div className="p-2 bg-white/5 rounded-lg group-hover:bg-accent-violet/20 transition-colors">
@@ -575,12 +735,13 @@ const Dashboard = () => {
                                  <span className="text-[10px] font-black text-text-primary px-2 py-1 bg-white/5 rounded-full uppercase">Monthly</span>
                               </div>
                               <h4 className="text-sm font-bold text-white mb-1">Elite Monthly</h4>
-                              <p className="text-[10px] text-text-muted">Acesso total por 30 ciclos neurais.</p>
+                              <p className="text-[10px] text-text-muted">R$ 49,90 / 30 dias operacionais.</p>
                            </button>
 
                            <button 
-                             onClick={() => user && simulateSubscriptionUpgrade(user.uid, 'yearly')}
-                             className={`p-6 rounded-2xl border transition-all text-left group ${profile?.plan === 'yearly' ? 'bg-accent-cyan/10 border-accent-cyan' : 'bg-black/40 border-white/5 hover:border-white/10'}`}
+                             onClick={() => handlePayment('yearly')}
+                             disabled={isPaying}
+                             className={`p-6 rounded-2xl border transition-all text-left group ${profile?.plan === 'yearly' ? 'bg-accent-cyan/10 border-accent-cyan' : 'bg-black/40 border-white/5 hover:border-white/10'} ${isPaying ? 'opacity-50' : ''}`}
                            >
                               <div className="flex justify-between items-start mb-4">
                                  <div className="p-2 bg-white/5 rounded-lg group-hover:bg-accent-cyan/20 transition-colors">
@@ -589,7 +750,7 @@ const Dashboard = () => {
                                  <span className="text-[10px] font-black text-text-primary px-2 py-1 bg-accent-cyan/20 rounded-full uppercase">Yearly</span>
                               </div>
                               <h4 className="text-sm font-bold text-white mb-1">Overlord Yearly</h4>
-                              <p className="text-[10px] text-text-muted">Potência máxima. 12 meses de forja.</p>
+                              <p className="text-[10px] text-text-muted">R$ 299,90 / 12 meses de forja.</p>
                            </button>
                         </div>
 

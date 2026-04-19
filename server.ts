@@ -5,8 +5,20 @@ import { fileURLToPath } from "url";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import admin from "firebase-admin";
+import { MercadoPagoConfig, Preference } from 'mercadopago';
 
 dotenv.config();
+
+// Initialize Mercado Pago
+if (process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+  console.log("Mercado Pago Token detected (ends with:", process.env.MERCADO_PAGO_ACCESS_TOKEN.slice(-4), ")");
+} else {
+  console.warn("Mercado Pago Token is MISSING. Checkout will not work.");
+}
+
+const mpClient = new MercadoPagoConfig({ 
+  accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || '' 
+});
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -120,6 +132,115 @@ async function startServer() {
     } catch (error) {
       console.error("Forge Error:", error);
       res.status(500).json({ error: "Falha na transmissão nuclear." });
+    }
+  });
+
+  // Mercado Pago Checkout
+  app.post("/api/payments/create-preference", async (req, res) => {
+    try {
+      const { plan, userId, email } = req.body;
+      
+      if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+        console.error("MERCADO_PAGO_ACCESS_TOKEN is missing");
+        return res.status(500).json({ error: "Configuração de pagamento ausente (Token)." });
+      }
+
+      if (!process.env.APP_URL) {
+        console.error("APP_URL is missing");
+        return res.status(500).json({ error: "Configuração do servidor ausente (URL)." });
+      }
+
+      const amount = plan === 'monthly' ? 49.90 : 299.90;
+      const title = plan === 'monthly' ? 'AETHEM - Elite Monthly' : 'AETHEM - Overlord Yearly';
+
+      const preference = new Preference(mpClient);
+      const result = await preference.create({
+        body: {
+          items: [
+            {
+              id: plan,
+              title: title,
+              unit_price: amount,
+              quantity: 1,
+              currency_id: 'BRL'
+            }
+          ],
+          payer: {
+            email: email || 'usuario@forja.aethem.com' // Fallback se o email for nulo
+          },
+          external_reference: userId, 
+          back_urls: {
+            success: `${process.env.APP_URL}/dashboard?payment=success`,
+            failure: `${process.env.APP_URL}/dashboard?payment=failure`,
+            pending: `${process.env.APP_URL}/dashboard?payment=pending`
+          },
+          auto_return: 'approved',
+          notification_url: `${process.env.APP_URL}/api/payments/webhook`
+        }
+      });
+
+      res.json({ id: result.id, init_point: result.init_point });
+    } catch (error: any) {
+      // Tentar extrair o erro específico do Mercado Pago se disponível
+      const mpError = error.response || error;
+      
+      console.error("MP Preference Error Detailed:", JSON.stringify(mpError, null, 2));
+
+      let userFriendlyMessage = "Falha ao gerar link de pagamento.";
+      
+      if (error.message?.includes("authentication")) {
+        userFriendlyMessage = "Erro de autenticação no Mercado Pago. Verifique seu Access Token.";
+      } else if (error.message?.includes("parameter")) {
+        userFriendlyMessage = "Erro nos parâmetros do pagamento. Contate o suporte.";
+      }
+
+      res.status(500).json({ 
+        error: userFriendlyMessage,
+        details: error.message,
+        mp_details: error.response?.data || null
+      });
+    }
+  });
+
+  // Mercado Pago Webhook
+  app.post("/api/payments/webhook", async (req, res) => {
+    try {
+      const { type, data } = req.query;
+      
+      if (type === 'payment') {
+        const paymentId = data as string;
+        
+        // Fetch payment details from MP
+        const response = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+          headers: { Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}` }
+        });
+        const paymentData = await response.json();
+
+        if (paymentData.status === 'approved') {
+          const userId = paymentData.external_reference;
+          const plan = paymentData.additional_info.items[0].id;
+          
+          const now = new Date();
+          const expiresAt = new Date();
+          if (plan === 'monthly') expiresAt.setMonth(now.getMonth() + 1);
+          else expiresAt.setFullYear(now.getFullYear() + 1);
+
+          // Update user in Firestore
+          await db.collection('users').doc(userId).set({
+            plan,
+            subscriptionStatus: 'active',
+            expiresAt: expiresAt,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
+
+          console.log(`Assinatura ativada para usuário: ${userId}`);
+        }
+      }
+
+      res.sendStatus(200);
+    } catch (error) {
+      console.error("Webhook Error:", error);
+      res.sendStatus(500);
     }
   });
 
