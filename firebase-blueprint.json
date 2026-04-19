@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "User": {
+      "title": "Usuário",
+      "description": "Perfil do operador do sistema AETHEM.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "plan": { "type": "string", "enum": ["free", "monthly", "yearly"] },
+        "subscriptionStatus": { "type": "string", "enum": ["active", "expired", "inactive"] },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "plan", "createdAt"]
+    },
+    "Prompt": {
+      "title": "Prompt Forjado",
+      "description": "Comandos de elite gerados pelo Kernel.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "idea": { "type": "string" },
+        "category": { "type": "string" },
+        "destination": { "type": "string" },
+        "answers": { "type": "object" },
+        "result": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "idea", "category", "destination", "result", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Dados do perfil de cada operador."
+    },
+    "/users/{userId}/prompts/{promptId}": {
+      "schema": "Prompt",
+      "description": "Histórico de prompts forjados pelo usuário."
+    }
+  }
+}
