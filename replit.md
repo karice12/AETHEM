@@ -1,57 +1,72 @@
 # AETHEM - AI Prompt Engineering Platform
 
 ## Overview
-AETHEM is an AI-powered prompt engineering platform that helps users craft elite prompts for LLMs using Google's Gemini AI. It features a subscription model, Firebase authentication, and a neural/cyberpunk-themed UI.
+AETHEM é uma plataforma de engenharia de prompts com IA que ajuda usuários a criar prompts elite para LLMs usando o Google Gemini. Possui modelo de assinatura, autenticação Firebase e UI com tema neural/cyberpunk.
 
 ## Tech Stack
 - **Frontend:** React 19 + TypeScript, Tailwind CSS 4, Framer Motion, React Router DOM v7
-- **Backend:** Express.js (Node.js) with TypeScript
+- **Backend:** Express.js (Node.js) com TypeScript
 - **AI:** Google Gemini (`@google/genai`)
 - **Auth & DB:** Firebase (Auth + Firestore)
 - **Payments:** Stripe
 - **Build:** Vite 6 + tsx
 - **Package Manager:** npm
 
-## Architecture
-- Single server (`server.ts`) runs on port 5000, serving both the Express API and Vite dev middleware
-- In production: serves the compiled `dist/` folder as static files
-- API routes under `/api/gemini/*` (protected by subscription middleware) and `/api/payments/*`
+## Arquitetura
+- Servidor único (`server.ts`) rodando na **porta 5000**, servindo tanto a API Express quanto o middleware Vite em dev
+- Em produção: serve a pasta compilada `dist/` como arquivos estáticos
+- Rotas de API em `/api/gemini/*` (protegidas por middleware de assinatura) e `/api/payments/*`
 
-## Project Structure
+## Estrutura do Projeto
 ```
-├── server.ts          # Express server + Vite dev middleware (port 5000)
-├── vite.config.ts     # Vite config (allowedHosts: true for Replit proxy)
+├── server.ts                    # Servidor Express + Vite dev middleware (porta 5000)
+├── vite.config.ts               # Vite config (allowedHosts: true para proxy Replit)
 ├── src/
-│   ├── App.tsx        # Routing and layout
-│   ├── main.tsx       # React entry point
-│   ├── pages/         # Page components
-│   ├── context/       # React contexts (AuthContext)
-│   ├── services/      # API service layers
-│   └── lib/           # Firebase init, utilities
-├── firebase-applet-config.json  # Firebase project config
-└── .env.example       # Required environment variables
+│   ├── App.tsx                  # Roteamento e layout
+│   ├── main.tsx                 # Ponto de entrada React
+│   ├── pages/                   # Componentes de página
+│   ├── context/                 # Contextos React (AuthContext)
+│   ├── services/                # Camadas de serviço de API
+│   └── lib/                    # Inicialização Firebase, utilitários
+├── firebase-applet-config.json  # Configuração do projeto Firebase
+└── .env.example                 # Variáveis de ambiente necessárias
 ```
 
-## Required Environment Variables
-- `GEMINI_API_KEY` - Google Gemini API key
-- `VITE_STRIPE_PUBLISHABLE_KEY` - Stripe publishable key (frontend)
-- `STRIPE_SECRET_KEY` - Stripe secret key (backend)
-- `STRIPE_WEBHOOK_SECRET` - Stripe webhook secret
-- `APP_URL` - Production app URL (for Stripe redirects)
+## Variáveis de Ambiente Necessárias
+> ⚠️ O servidor inicia mesmo sem essas chaves, mas as funcionalidades correspondentes ficam desativadas.
 
-## Running the App
+| Variável | Descrição | Obrigatória para |
+|---|---|---|
+| `GEMINI_API_KEY` | Chave da API Google Gemini | Geração de prompts com IA |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | Chave pública Stripe (frontend) | Checkout de pagamentos |
+| `STRIPE_SECRET_KEY` | Chave secreta Stripe (backend) | Checkout de pagamentos |
+| `STRIPE_WEBHOOK_SECRET` | Secret do webhook Stripe | Processar eventos de pagamento |
+| `APP_URL` | URL da aplicação em produção | Redirecionamentos do Stripe |
+
+## Inicialização
+
+```bash
+# Desenvolvimento (servidor na porta 5000)
+npm run dev
+
+# Build do frontend para dist/
+npm run build
 ```
-npm run dev   # Development (tsx server.ts on port 5000)
-npm run build # Build frontend to dist/
-```
 
-## Deployment
-- Target: autoscale
-- Build: `npm run build`
-- Run: `npx tsx server.ts`
-- Port: 5000
+## Deploy / Produção
+- **Target:** autoscale
+- **Build:** `npm run build` → gera `dist/`
+- **Run:** `npx tsx server.ts`
+- **Porta:** 5000
+- O `server.ts` detecta `NODE_ENV=production` e serve a pasta `dist/` como estáticos
 
-## Notes
-- Stripe initialization is graceful — app runs without Stripe key (checkout features disabled)
-- Vite configured with `allowedHosts: true` for Replit proxy compatibility
-- Firebase Admin initialized using `firebase-applet-config.json`
+## Comportamento sem Chaves de API
+- **Sem `STRIPE_SECRET_KEY`:** Servidor inicia normalmente; rotas `/api/payments/*` retornam erro 500 amigável
+- **Sem `GEMINI_API_KEY`:** Servidor inicia normalmente; rotas `/api/gemini/*` falham na chamada à API
+- **Sem `APP_URL`:** Rota de criação de sessão Stripe retorna erro 500
+
+## Configurações Importantes
+- Vite configurado com `allowedHosts: true` para compatibilidade com o proxy do Replit
+- Servidor Express escuta em `0.0.0.0:5000`
+- Firebase Admin inicializado via `firebase-applet-config.json`
+- Stripe é inicializado de forma nullable — sem crash ao iniciar sem a chave

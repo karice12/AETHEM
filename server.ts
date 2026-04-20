@@ -194,9 +194,9 @@ async function startServer() {
     try {
       const { plan, userId, email } = req.body;
       
-      if (!process.env.STRIPE_SECRET_KEY) {
+      if (!stripe) {
         console.error("STRIPE_SECRET_KEY is missing");
-        return res.status(500).json({ error: "Configuração de pagamento ausente (Stripe Secret)." });
+        return res.status(500).json({ error: "Funcionalidade de pagamento requer a configuração da chave STRIPE_SECRET_KEY no ambiente." });
       }
 
       if (!process.env.APP_URL) {
