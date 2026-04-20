@@ -1,10 +1,9 @@
 {
-  "projectId": "gen-lang-client-0523858783",
-  "appId": "1:582020019404:web:5785aee5e2ba5ee07f7e69",
-  "apiKey": "AIzaSyCvOKqQ4hbVBIAhZqeAarDvL328wuaPAy4",
-  "authDomain": "gen-lang-client-0523858783.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-e7284e82-73d7-4036-ad0c-d77a2a85b8a0",
-  "storageBucket": "gen-lang-client-0523858783.firebasestorage.app",
-  "messagingSenderId": "582020019404",
-  "measurementId": ""
+  "projectId": "aethem-2cb54",
+  "appId": "1:117683541282:web:05fbd90e0a56d93081817b",
+  "apiKey": "AIzaSyALiEPZICPu10IcT6CFL3CJShk3UfgwuXU",
+  "authDomain": "aethem-2cb54.firebaseapp.com",
+  "storageBucket": "aethem-2cb54.firebasestorage.app",
+  "messagingSenderId": "117683541282",
+  "measurementId": "G-Y2CLYGEBM2"
 }
