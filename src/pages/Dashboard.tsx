@@ -14,7 +14,7 @@ import {
 import { signOut } from 'firebase/auth';
 
 const Dashboard = () => {
-  const { user, profile, isSubscribed, needsTermsAcceptance } = useAuth();
+  const { user, profile, loading, isSubscribed, needsTermsAcceptance } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'library' | 'settings'>('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -36,6 +36,8 @@ const Dashboard = () => {
   const [isPaying, setIsPaying] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'success' | 'failure' | 'pending' | null>(null);
+
+  const [showDebug, setShowDebug] = useState(false);
 
   // Verificar status de pagamento na URL
   useEffect(() => {
@@ -169,7 +171,7 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden relative mesh-gradient">
+    <div className="flex h-screen h-[100dvh] bg-background overflow-hidden relative mesh-gradient">
       {/* Payment Feedback Toast */}
       <AnimatePresence>
         {paymentStatus === 'success' && (
@@ -327,8 +329,8 @@ const Dashboard = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto p-4 lg:p-10 relative z-10 custom-scrollbar">
-        <header className="mb-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+      <main className="flex-1 overflow-y-auto p-4 lg:p-8 relative z-10 custom-scrollbar flex flex-col h-full">
+        <header className="mb-6 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 transition-all">
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -341,21 +343,91 @@ const Dashboard = () => {
           </motion.div>
           
           <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setShowDebug(!showDebug)}
+              className="text-[10px] text-text-muted hover:text-accent-cyan uppercase font-black tracking-widest px-3 py-1 border border-white/5 bg-white/[0.02] rounded-full transition-colors outline-none"
+            >
+              Logs de Sistema
+            </button>
             <div className="glass px-4 py-2 rounded-2xl flex items-center gap-4">
                <div className="flex flex-col items-end">
                   <span className="text-[10px] text-text-muted uppercase font-black tracking-widest">Sincronia</span>
-                  <span className="text-xs font-bold text-emerald-500">99.9%</span>
+                  <span className={`text-xs font-bold ${loading ? 'text-orange-500' : 'text-emerald-500'}`}>
+                    {loading ? 'Sincronizando...' : 'Conectado'}
+                  </span>
                </div>
                <div className="w-[1px] h-8 bg-white/5" />
                <div className="flex flex-col items-end">
-                  <span className="text-[10px] text-text-muted uppercase font-black tracking-widest">Nível</span>
-                  <span className="text-xs font-bold text-accent-cyan uppercase tracking-widest">{profile?.plan || '...'}</span>
+                  <span className="text-[10px] text-text-muted uppercase font-black tracking-widest">Status Licença</span>
+                  <span className={`text-xs font-bold uppercase tracking-widest ${isSubscribed ? 'text-accent-cyan' : 'text-text-muted'}`}>
+                    {profile?.plan ? (isSubscribed ? profile.plan : `${profile.plan} (Bloqueado)`) : 'FREE'}
+                  </span>
                </div>
             </div>
           </div>
         </header>
 
         <div className="flex-1 min-h-0">
+          <AnimatePresence>
+            {showDebug && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="mb-8 p-6 bg-black/80 border border-accent-cyan/30 rounded-3xl overflow-hidden glass-dark font-mono text-[10px]"
+              >
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-accent-cyan font-black uppercase tracking-widest">Console de Diagnóstico Neural</h3>
+                  <button onClick={() => setShowDebug(false)} className="text-text-muted hover:text-white">FECHAR [X]</button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <p className="text-white/40 uppercase">Auth Context:</p>
+                    <pre className="p-3 bg-white/5 rounded-xl text-accent-cyan">
+                      {JSON.stringify({ 
+                        uid: user?.uid,
+                        email: user?.email,
+                        isSubscribed,
+                        needsTerms: needsTermsAcceptance
+                      }, null, 2)}
+                    </pre>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-white/40 uppercase">Database Profile State:</p>
+                    <pre className="p-3 bg-white/5 rounded-xl text-accent-violet">
+                      {JSON.stringify(profile, (key, value) => {
+                        if (key === 'expiresAt' && value?.toDate) return value.toDate();
+                        return value;
+                      }, 2)}
+                    </pre>
+                  </div>
+                </div>
+                <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between gap-4">
+                   <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${isSubscribed ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                      <span className="uppercase font-black text-text-muted">Kernel Status: {isSubscribed ? 'OPERACIONAL' : 'STANDBY'}</span>
+                   </div>
+                   <div className="flex items-center gap-3">
+                      <p className="text-text-muted opacity-50 uppercase mr-4">Versão do Kernel: v3.5.2-RELEASE-AUDIT</p>
+                      <button 
+                        onClick={async () => {
+                           if (user) {
+                             if (confirm('ADM: Deseja forçar a ativação da licença Commander (Yearly) neste terminal?')) {
+                               await simulateSubscriptionUpgrade(user.uid, 'yearly');
+                               alert('Comando Neural Executado: Licença Ativada via Protocolo de Emergência.');
+                             }
+                           }
+                        }}
+                        className="px-4 py-2 bg-accent-violet hover:bg-accent-hover text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-accent-violet/20"
+                      >
+                        [ FORCE LIBERATION ]
+                      </button>
+                   </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <AnimatePresence mode="wait">
             {activeTab === 'overview' && (
               <motion.div 
@@ -363,7 +435,7 @@ const Dashboard = () => {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pb-10"
+                className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch pb-10"
               >
                 {/* Workstation (Form) */}
                 <section className="lg:col-span-7 flex flex-col gap-8 relative">
@@ -385,7 +457,7 @@ const Dashboard = () => {
                     </div>
                   )}
                   <motion.div 
-                    className="bg-surface/30 border border-white/5 rounded-3xl flex flex-col overflow-hidden glass shadow-2xl"
+                    className="bg-surface/30 border border-white/5 rounded-3xl flex flex-col overflow-hidden glass shadow-2xl h-full"
                   >
                     <div className="px-8 py-5 border-b border-white/5 bg-white/[0.02] flex items-center justify-between">
                       <span className="text-[11px] font-black uppercase tracking-[0.2em] text-text-muted flex items-center gap-2">
@@ -407,16 +479,16 @@ const Dashboard = () => {
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -10 }}
-                            className="space-y-8"
+                            className="space-y-6 flex-1 flex flex-col h-full"
                           >
-                            <div className="space-y-3">
+                            <div className="space-y-3 flex-1 flex flex-col">
                               <label className="text-[10px] font-black text-text-muted uppercase tracking-[0.3em] flex items-center gap-2 px-1">
                                 Input do Operador
                               </label>
                               <textarea 
                                 value={idea}
                                 onChange={(e) => setIdea(e.target.value)}
-                                className="w-full h-40 bg-black/40 border border-white/5 rounded-2xl p-6 text-text-primary focus:border-accent-violet/50 outline-none transition-all resize-none placeholder:text-text-muted/40 font-mono text-sm leading-relaxed"
+                                className="w-full min-h-[140px] lg:h-[calc(100%-40px)] flex-1 bg-black/40 border border-white/5 rounded-2xl p-6 text-text-primary focus:border-accent-violet/50 outline-none transition-all resize-none placeholder:text-text-muted/40 font-mono text-sm leading-relaxed"
                                 placeholder="Digite aqui sua ideia base para o prompt..."
                               />
                             </div>
@@ -533,7 +605,7 @@ const Dashboard = () => {
                 {/* Output (Col Span 5) */}
                 <section className="lg:col-span-5 flex flex-col gap-8 h-full">
                   <motion.div 
-                    className="bg-black/60 border border-white/5 rounded-3xl flex flex-col flex-1 min-h-[500px] overflow-hidden glass shadow-2xl relative group"
+                    className="bg-black/60 border border-white/5 rounded-3xl flex flex-col flex-1 min-h-[400px] lg:min-h-0 overflow-hidden glass shadow-2xl relative group"
                   >
                     <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
                         <span className="text-[10px] font-black uppercase tracking-widest text-text-muted flex items-center gap-2">
