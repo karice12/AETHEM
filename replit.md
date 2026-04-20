@@ -12,14 +12,14 @@ AETHEM é uma plataforma de engenharia de prompts com IA que ajuda usuários a c
 - **Build:** Vite 6 + tsx
 - **Package Manager:** npm
 
-## Arquitetura
-- Servidor único (`server.ts`) rodando na **porta 5000**, servindo tanto a API Express quanto o middleware Vite em dev
-- Em produção: serve a pasta compilada `dist/` como arquivos estáticos
-- Rotas de API em `/api/gemini/*` (protegidas por middleware de assinatura) e `/api/payments/*`
-
 ## Estrutura do Projeto
 ```
-├── server.ts                    # Servidor Express + Vite dev middleware (porta 5000)
+├── server.ts                    # Dev/Replit: Express + Vite middleware (porta 5000)
+├── api/
+│   ├── app.ts                   # Express app com todas as rotas (sem Vite, sem listen)
+│   └── index.ts                 # Vercel serverless entry point (re-exporta api/app.ts)
+├── vercel.json                  # Configuração de deploy para Vercel
+├── DEPLOY_VERCEL.md             # Guia de deploy na Vercel
 ├── vite.config.ts               # Vite config (allowedHosts: true para proxy Replit)
 ├── src/
 │   ├── App.tsx                  # Roteamento e layout
@@ -27,7 +27,7 @@ AETHEM é uma plataforma de engenharia de prompts com IA que ajuda usuários a c
 │   ├── pages/                   # Componentes de página
 │   ├── context/                 # Contextos React (AuthContext)
 │   ├── services/                # Camadas de serviço de API
-│   └── lib/                    # Inicialização Firebase, utilitários
+│   └── lib/                     # Inicialização Firebase, utilitários
 ├── firebase-applet-config.json  # Configuração do projeto Firebase
 └── .env.example                 # Variáveis de ambiente necessárias
 ```
@@ -46,19 +46,25 @@ AETHEM é uma plataforma de engenharia de prompts com IA que ajuda usuários a c
 ## Inicialização
 
 ```bash
-# Desenvolvimento (servidor na porta 5000)
+# Desenvolvimento no Replit (porta 5000)
 npm run dev
 
 # Build do frontend para dist/
 npm run build
 ```
 
-## Deploy / Produção
-- **Target:** autoscale
+## Arquitetura de Deploy
+
+### Replit (dev e produção)
+- **Dev:** `tsx server.ts` → Express + Vite middleware na porta 5000
+- **Prod:** `NODE_ENV=production npx tsx server.ts` → Express serve `dist/` como estáticos
+
+### Vercel (serverless)
 - **Build:** `npm run build` → gera `dist/`
-- **Run:** `npx tsx server.ts`
-- **Porta:** 5000
-- O `server.ts` detecta `NODE_ENV=production` e serve a pasta `dist/` como estáticos
+- **Backend:** `api/index.ts` → função serverless Express
+- **Frontend:** `dist/` servido como estáticos
+- **Roteamento:** `vercel.json` redireciona `/api/*` → serverless, `/*` → `index.html`
+- Ver `DEPLOY_VERCEL.md` para o passo a passo completo
 
 ## Comportamento sem Chaves de API
 - **Sem `STRIPE_SECRET_KEY`:** Servidor inicia normalmente; rotas `/api/payments/*` retornam erro 500 amigável
@@ -69,4 +75,4 @@ npm run build
 - Vite configurado com `allowedHosts: true` para compatibilidade com o proxy do Replit
 - Servidor Express escuta em `0.0.0.0:5000`
 - Firebase Admin inicializado via `firebase-applet-config.json`
-- Stripe é inicializado de forma nullable — sem crash ao iniciar sem a chave
+- Stripe e Gemini são inicializados de forma nullable — sem crash ao iniciar sem as chaves
