@@ -12,7 +12,7 @@ import Stripe from 'stripe';
 dotenv.config();
 
 // Initialize Stripe
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 if (process.env.STRIPE_SECRET_KEY) {
   console.log("Stripe Secret Key detected.");
@@ -36,7 +36,7 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = 5000;
 
   // Stripe Webhook MUST stay before express.json() to receive raw body for signature verification
   app.post("/api/payments/webhook", express.raw({ type: 'application/json' }), async (req: any, res: any) => {
@@ -44,6 +44,10 @@ async function startServer() {
     let event;
 
     console.log("Stripe Webhook Received. Signature:", sig ? "Present" : "Missing");
+
+    if (!stripe) {
+      return res.status(503).json({ error: "Stripe not configured." });
+    }
 
     try {
       event = stripe.webhooks.constructEvent(
